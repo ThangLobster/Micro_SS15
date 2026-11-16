@@ -1,0 +1,278 @@
+{
+  "info": {
+    "name": "Micro-SS15 - Auth & Authorization",
+    "description": "Postman Collection cho 6 bài tập: cấp phát Token, Gateway, RBAC, Token Rotation, Redis Blacklist, PBAC.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "gatewayUrl", "value": "http://localhost:8899" },
+    { "key": "identityUrl", "value": "http://localhost:8090" },
+    { "key": "accessToken", "value": "" },
+    { "key": "refreshToken", "value": "" },
+    { "key": "instructorAccessToken", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Bài 0 - Chuẩn bị tài khoản",
+      "item": [
+        {
+          "name": "Register STUDENT (chỉ quyền COURSE_READ)",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"], "type": "text/javascript" } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"student01\",\n  \"password\": \"123456\",\n  \"role\": \"STUDENT\",\n  \"permissions\": [\"COURSE_READ\"]\n}" },
+            "url": { "raw": "{{identityUrl}}/api/auth/register", "host": ["{{identityUrl}}"], "path": ["api", "auth", "register"] }
+          }
+        },
+        {
+          "name": "Login INSTRUCTOR (lưu token để test RBAC/PBAC)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('instructorAccessToken', json.accessToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"instructor01\",\n  \"password\": \"123456\"\n}" },
+            "url": { "raw": "{{gatewayUrl}}/api/auth/login", "host": ["{{gatewayUrl}}"], "path": ["api", "auth", "login"] }
+          }
+        },
+        {
+          "name": "Register INSTRUCTOR",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"], "type": "text/javascript" } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"instructor01\",\n  \"password\": \"123456\",\n  \"role\": \"INSTRUCTOR\"\n}" },
+            "url": { "raw": "{{identityUrl}}/api/auth/register", "host": ["{{identityUrl}}"], "path": ["api", "auth", "register"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Bài 1 - Cấp phát Access & Refresh Token",
+      "item": [
+        {
+          "name": "Login (student01)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('accessToken', json.accessToken);",
+                  "pm.collectionVariables.set('refreshToken', json.refreshToken);",
+                  "console.log('Payload:', JSON.stringify(json));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"student01\",\n  \"password\": \"123456\"\n}" },
+            "url": { "raw": "{{gatewayUrl}}/api/auth/login", "host": ["{{gatewayUrl}}"], "path": ["api", "auth", "login"] }
+          }
+        },
+        {
+          "name": "Login sai mật khẩu (kỳ vọng 401)",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('Status 401', () => pm.response.to.have.status(401));"], "type": "text/javascript" } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"student01\",\n  \"password\": \"wrong-password\"\n}" },
+            "url": { "raw": "{{gatewayUrl}}/api/auth/login", "host": ["{{gatewayUrl}}"], "path": ["api", "auth", "login"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Bài 2 - Gateway kiểm tra JWT",
+      "item": [
+        {
+          "name": "GET /api/courses KHÔNG có token (kỳ vọng 401)",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('Status 401', () => pm.response.to.have.status(401));"], "type": "text/javascript" } }],
+          "request": { "method": "GET", "url": { "raw": "{{gatewayUrl}}/api/courses", "host": ["{{gatewayUrl}}"], "path": ["api", "courses"] } }
+        },
+        {
+          "name": "GET /api/courses token SAI chữ ký (kỳ vọng 401)",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('Status 401', () => pm.response.to.have.status(401));"], "type": "text/javascript" } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer invalid.token.value" }],
+            "url": { "raw": "{{gatewayUrl}}/api/courses", "host": ["{{gatewayUrl}}"], "path": ["api", "courses"] }
+          }
+        },
+        {
+          "name": "GET /api/courses token HỢP LỆ (kỳ vọng 200)",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"], "type": "text/javascript" } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{gatewayUrl}}/api/courses", "host": ["{{gatewayUrl}}"], "path": ["api", "courses"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Bài 3 - RBAC tại Course-Service",
+      "item": [
+        {
+          "name": "STUDENT GET /api/courses (kỳ vọng 200)",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"], "type": "text/javascript" } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{gatewayUrl}}/api/courses", "host": ["{{gatewayUrl}}"], "path": ["api", "courses"] }
+          }
+        },
+        {
+          "name": "STUDENT POST /api/courses (kỳ vọng 403)",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('Status 403', () => pm.response.to.have.status(403));"], "type": "text/javascript" } }],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Khoa hoc cua STUDENT\"\n}" },
+            "url": { "raw": "{{gatewayUrl}}/api/courses", "host": ["{{gatewayUrl}}"], "path": ["api", "courses"] }
+          }
+        },
+        {
+          "name": "INSTRUCTOR POST /api/courses (kỳ vọng 201)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('Có token INSTRUCTOR', () => pm.expect(pm.collectionVariables.get('instructorAccessToken')).to.be.ok);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{instructorAccessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Khoa hoc cua INSTRUCTOR\"\n}" },
+            "url": { "raw": "{{gatewayUrl}}/api/courses", "host": ["{{gatewayUrl}}"], "path": ["api", "courses"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Bài 4 - Token Rotation",
+      "item": [
+        {
+          "name": "POST /api/auth/refresh (kỳ vọng 200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('newAccessToken', json.accessToken);",
+                  "pm.collectionVariables.set('newRefreshToken', json.refreshToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}" },
+            "url": { "raw": "{{gatewayUrl}}/api/auth/refresh", "host": ["{{gatewayUrl}}"], "path": ["api", "auth", "refresh"] }
+          }
+        },
+        {
+          "name": "DÙNG LẠI refresh token cũ (kỳ vọng 403)",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('Status 403', () => pm.response.to.have.status(403));"], "type": "text/javascript" } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}" },
+            "url": { "raw": "{{gatewayUrl}}/api/auth/refresh", "host": ["{{gatewayUrl}}"], "path": ["api", "auth", "refresh"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Bài 5 - Logout & Redis Blacklist",
+      "item": [
+        {
+          "name": "POST /api/auth/logout (kỳ vọng 200)",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"], "type": "text/javascript" } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{gatewayUrl}}/api/auth/logout", "host": ["{{gatewayUrl}}"], "path": ["api", "auth", "logout"] }
+          }
+        },
+        {
+          "name": "Dùng lại token đã logout (kỳ vọng 401)",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('Status 401', () => pm.response.to.have.status(401));"], "type": "text/javascript" } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{gatewayUrl}}/api/courses", "host": ["{{gatewayUrl}}"], "path": ["api", "courses"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Bài 6 - PBAC theo quyền cụ thể",
+      "item": [
+        {
+          "name": "COURSE_READ: GET /api/courses (kỳ vọng 200)",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"], "type": "text/javascript" } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{gatewayUrl}}/api/courses", "host": ["{{gatewayUrl}}"], "path": ["api", "courses"] }
+          }
+        },
+        {
+          "name": "Chỉ có COURSE_READ: POST /api/courses (kỳ vọng 403)",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('Status 403', () => pm.response.to.have.status(403));"], "type": "text/javascript" } }],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Khong duoc phep tao\"\n}" },
+            "url": { "raw": "{{gatewayUrl}}/api/courses", "host": ["{{gatewayUrl}}"], "path": ["api", "courses"] }
+          }
+        },
+        {
+          "name": "Xem Header Gateway forward xuống",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('Status 200', () => pm.response.to.have.status(200));"], "type": "text/javascript" } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{gatewayUrl}}/api/courses/debug/authorities", "host": ["{{gatewayUrl}}"], "path": ["api", "courses", "debug", "authorities"] }
+          }
+        }
+      ]
+    }
+  ]
+}

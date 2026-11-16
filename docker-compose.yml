@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ss15-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: identity_db
+    ports:
+      # Cổng 5434 vì SS14 đang dùng 5433
+      - "5434:5432"
+    volumes:
+      - ss15-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: ss15-redis
+    ports:
+      # Cổng 6380 vì SS14 đang dùng 6379
+      - "6380:6379"
+    volumes:
+      - ss15-redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  ss15-pgdata:
+  ss15-redisdata:

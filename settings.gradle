@@ -1,0 +1,5 @@
+rootProject.name = 'micro-ss15'
+
+include 'identity-service'
+include 'course-service'
+include 'gateway-service'
